@@ -3,9 +3,8 @@ all: index.js Client.js index.mjs Client.mjs Server.js Server.mjs
 clean:
 	rm -f index.js Client.js index.mjs Client.mjs Server.js Server.mjs
 
-%.js: source/%.js
+%.js: source/%.mjs
 	npx babel $< --out-dir .
 	
-%.mjs: source/%.js
+%.mjs: source/%.mjs
 	cp $< $@;
-	perl -pi -e "s~\b(import.+ from )(['\"])(?!node\:)([^'\"]+)\2~\1\2\3.mjs\2~g" $@;

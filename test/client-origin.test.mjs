@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { Client } from '../source/Client.js';
+import { Client } from '../Client.mjs';
 
 test('client posts message with correct origin', async () => {
   const fakeMessages = [];

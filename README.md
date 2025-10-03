@@ -55,8 +55,8 @@ Pass `navigator.serviceWorker.controller` to select the service worker as the re
 import { Client } from 'quickbus';
 
 async function callRemoteMethod() {
-  const bus = new Client(navigator.serviceWorker.controller);
-  const greeting = await bus.sayHello('World');
+  const qbClient = new Client(navigator.serviceWorker.controller);
+  const greeting = await qbClient.sayHello('World');
   console.log(greeting); // Hello, World!
 }
 
@@ -75,7 +75,7 @@ If you plan to communicate across different origins, supply the target origin as
 import { Server } from 'quickbus';
 
 const handler = {
-  sayHello: async (to) => {
+  sayHello: (to) => {
     return `Hello, ${to}!`;
   }
 };
@@ -91,9 +91,9 @@ globalThis.addEventListener('message', event => {
 
 Spawn a quickbus client and call your method, and await the result.
 
-Pass the iframe as the first param to select it as the recipient of the client's requests.
+Pass the iframe as the first parameter to select it as the recipient of the client's requests.
 
-You'll also need to pass its origin as the second param if you plan to make cross-domain calls.
+You'll also need to pass its origin as the second parameter if you plan to make cross-domain calls.
 
 ```js
 import { Client } from 'quickbus';
