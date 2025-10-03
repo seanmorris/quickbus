@@ -40,7 +40,7 @@ const qbServer = new Server({
   }
 });
 
-self.addEventListener('message', event => {
+globalThis.addEventListener('message', event => {
   qbServer.handleMessageEvent(event);
 });
 ```
@@ -82,7 +82,7 @@ const handler = {
 
 const qbServer = new Server(handler, 'https://example.com');
 
-self.addEventListener('message', event => {
+globalThis.addEventListener('message', event => {
   qbServer.handleMessageEvent(event);
 });
 ```
@@ -100,10 +100,10 @@ import { client } from 'quickbus';
 
 const iframe = document.querySelector('iframe');
 const frameOrigin = 'https://child.example.com';
-const bus = new client(iframe.contentWindow, frameOrigin);
+const qbClient = new client(iframe.contentWindow, frameOrigin);
 
 async function callRemoteMethod() {
-  const greeting = await bus.sayHello('World');
+  const greeting = await qbClient.sayHello('World');
   console.log(greeting); // Hello, World!
 }
 
@@ -119,14 +119,14 @@ callRemoteMethod();
 
 Returns a Proxy: any method call (`bus.foo(arg1, arg2)`) sends `{ action: 'foo', params: [arg1, arg2], token }` and returns a Promise resolving to the remote result.
 
-### `Server(handler, origin?)`
+### `Server(handler, origins?)`
 
 - **handler**: An object whose methods (sync or async) implement your RPC endpoints.
-- **origin**: Optional `targetOrigin` for replies; defaults to same-origin.
+- **origin**: Optional array of acceptable `targetOrigin`s for responses; defaults to same-origin.
 
 Use `server.handleMessageEvent(event)` inside a `message` event listener to dispatch RPC calls and post responses back.
 
 ```js
 const server = new Server(handler, 'https://client.example.com');
-self.addEventListener('message', server.handleMessageEvent.bind(server));
+globalThis.addEventListener('message', server.handleMessageEvent.bind(server));
 ```
