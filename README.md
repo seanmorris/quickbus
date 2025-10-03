@@ -13,7 +13,8 @@ npm install quickbus
 ```js
 // ES Modules
 import { Client, Server } from 'quickbus';
-
+```
+```js
 // CommonJS
 const { Client, Server } = require('quickbus');
 ```
