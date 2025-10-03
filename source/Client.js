@@ -1,6 +1,7 @@
 const incomplete = new Map;
 
 const recipientSymbol = Symbol('recipient');
+const originSymbol = Symbol('origin');
 
 const onMessage = event => {
 	if(event.data.re && incomplete.has(event.data.re))
@@ -18,7 +19,6 @@ const onMessage = event => {
 	}
 };
 
-
 const sendMessage = (client, action, params, accept, reject) => {
 	const token  = crypto.randomUUID();
 	const result = new Promise((_accept, _reject) => [accept, reject] = [_accept, _reject]);
@@ -32,33 +32,43 @@ const sendMessage = (client, action, params, accept, reject) => {
 		recipient = Promise.resolve(recipient);
 	}
 
-	recipient.then(recipient => recipient.postMessage({action, params, token}));
+	recipient.then(recipient => {
+		if(client[originSymbol])
+		{
+			recipient.postMessage({action, params, token}, client[originSymbol]);
+		}
+		else
+		{
+			recipient.postMessage({action, params, token});
+		}
+	});
 
 	return result;
 };
 
-let count = 0;
-
-navigator.serviceWorker.addEventListener('message', onMessage);
-
-const registry = new FinalizationRegistry(() => {
-	if(count-- === 0)
-	{
-		navigator.serviceWorker.removeEventListener('message', onMessage);
-	}
-});
-
-export class client
+if (typeof navigator !== 'undefined' && navigator.serviceWorker &&
+	typeof navigator.serviceWorker.addEventListener === 'function')
 {
-	constructor(recipient)
+	navigator.serviceWorker.addEventListener('message', onMessage);
+}
+
+export class Client
+{
+	constructor(recipient, origin)
 	{
+		this[originSymbol] = origin;
 		this[recipientSymbol] = recipient;
-		count++;
 		
 		return new Proxy(this, {
-			get: (target, action, receiver) => (...params)  => sendMessage(
-				receiver, action, params
-			)
+				get: (target, action, receiver) => {
+
+				if(typeof action === 'symbol')
+				{
+					return target[action];
+				}
+
+				return (...params)  => sendMessage(receiver, action, params);
+			}
 		});
-	}	
+	}
 }

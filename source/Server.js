@@ -1,9 +1,9 @@
 export class Server
 {	
-	constructor(handler, origin)
+	constructor(handler, origins)
 	{
 		this.handler = handler;
-		this.origin = origin;
+		this.origins = Array.isArray(origins) ? origins : [origins];
 	}
 
 	async handleMessageEvent(event)
@@ -26,9 +26,16 @@ export class Server
 			}
 			finally
 			{
-				if(this.origin)
+				if(event.origin)
 				{
-					source.postMessage({re: token, result, error}, this.origin);
+					if(!this.origins.includes(event.origin))
+					{
+						console.warn(`Got a message from unauthorized origin: ${event.origin}`);
+					}
+					else
+					{
+						source.postMessage({re: token, result, error}, event.origin);
+					}
 				}
 				else
 				{
