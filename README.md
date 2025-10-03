@@ -96,11 +96,11 @@ Pass the iframe as the first param to select it as the recipient of the client's
 You'll also need to pass its origin as the second param if you plan to make cross-domain calls.
 
 ```js
-import { client } from 'quickbus';
+import { Client } from 'quickbus';
 
 const iframe = document.querySelector('iframe');
 const frameOrigin = 'https://child.example.com';
-const qbClient = new client(iframe.contentWindow, frameOrigin);
+const qbClient = new Client(iframe.contentWindow, frameOrigin);
 
 async function callRemoteMethod() {
   const greeting = await qbClient.sayHello('World');
@@ -112,7 +112,7 @@ callRemoteMethod();
 
 ## API Reference
 
-### `client(recipient, origin?)`
+### `Client(recipient, origin?)`
 
 - **recipient**: A `Window`-like object (e.g. `WindowClient` or `Window`) with `.postMessage(...)`.
 - **origin**: Optional second argument passed as `targetOrigin` for `postMessage`; defaults to `*` (same-origin).
@@ -122,7 +122,7 @@ Returns a Proxy: any method call (`bus.foo(arg1, arg2)`) sends `{ action: 'foo',
 ### `Server(handler, origins?)`
 
 - **handler**: An object whose methods (sync or async) implement your RPC endpoints.
-- **origin**: Optional array of acceptable `targetOrigin`s for responses; defaults to same-origin.
+- **origins**: Optional array of acceptable `targetOrigin`s for responses; defaults to same-origin.
 
 Use `server.handleMessageEvent(event)` inside a `message` event listener to dispatch RPC calls and post responses back.
 
