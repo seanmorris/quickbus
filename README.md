@@ -12,10 +12,10 @@ npm install quickbus
 
 ```js
 // ES Modules
-import { client, Server } from 'quickbus';
+import { Client, Server } from 'quickbus';
 
 // CommonJS
-const { client, Server } = require('quickbus');
+const { Client, Server } = require('quickbus');
 ```
 
 ## Architecture
@@ -28,16 +28,16 @@ A server exposes a set of methods that can be called by the client. It can run i
 
 #### In your ServiceWorker (the "server" side)
 
+Spawn a quickbus server within an iframe to expose methods to pages.
+
 ```js
 import { Server } from 'quickbus';
 
-const handler = {
-  sayHello: async (to) => {
+const qbServer = new Server({
+  sayHello(to) {
     return `Hello, ${to}!`;
   }
-};
-
-const qbServer = new Server(handler);
+});
 
 self.addEventListener('message', event => {
   qbServer.handleMessageEvent(event);
@@ -46,16 +46,17 @@ self.addEventListener('message', event => {
 
 #### In your page (the "client" side)
 
-Then, in the outer page, spawn a client. If you're communicating across different origin, you'll need to supply the other frame's origin as the second param:
+Spawn a quickbus client and call your method, and await the result.
+
+Pass `navigator.serviceWorker.controller` to select the service worker as the recipient of the client's requests.
 
 ```js
 import { Client } from 'quickbus';
 
-const qbClient = new Client();
-
 async function callRemoteMethod() {
-  const result = qbClient.sayHello('World');
-  console.log(result); // Hello, World!
+  const bus = new Client(navigator.serviceWorker.controller);
+  const greeting = await bus.sayHello('World');
+  console.log(greeting); // Hello, World!
 }
 
 callRemoteMethod();
@@ -67,7 +68,7 @@ callRemoteMethod();
 
 Spawn a quickbus server within an iframe to expose methods to the outer page. This can also be done vice versa.
 
-If you plan to communicate across different origins, you'll need to supply a list of origins that the server can accept as the second parameter.
+If you plan to communicate across different origins, supply the target origin as the second parameter.
 
 ```js
 import { Server } from 'quickbus';
@@ -78,7 +79,7 @@ const handler = {
   }
 };
 
-const qbServer = new Server(handler, ['https://example.com']); // only respond to https://example.com
+const qbServer = new Server(handler, 'https://example.com');
 
 self.addEventListener('message', event => {
   qbServer.handleMessageEvent(event);
@@ -87,18 +88,22 @@ self.addEventListener('message', event => {
 
 #### In your page (the "client" side)
 
-Then, in the outer page, spawn a client. If you're communicating across different origin, you'll need to supply the other frame's origin as the second param:
+Spawn a quickbus client and call your method, and await the result.
+
+Pass the iframe as the first param to select it as the recipient of the client's requests.
+
+You'll also need to pass its origin as the second param if you plan to make cross-domain calls.
 
 ```js
-import { Client } from 'quickbus';
+import { client } from 'quickbus';
 
 const iframe = document.querySelector('iframe');
 const frameOrigin = 'https://child.example.com';
-const qbClient = new Client(iframe, iframeOrigin);
+const bus = new client(iframe.contentWindow, frameOrigin);
 
 async function callRemoteMethod() {
-  const result = qbClient.sayHello('World');
-  console.log(result); // Hello, World!
+  const greeting = await bus.sayHello('World');
+  console.log(greeting); // Hello, World!
 }
 
 callRemoteMethod();
