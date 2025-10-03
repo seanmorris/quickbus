@@ -1,7 +1,7 @@
-all: Client.js Client.mjs Server.js Server.mjs
+all: index.js Client.js index.mjs Client.mjs Server.js Server.mjs
 
 clean:
-	rm Client.js Client.mjs Server.js Server.mjs
+	rm -f index.js Client.js index.mjs Client.mjs Server.js Server.mjs
 
 %.js: source/%.js
 	npx babel $< --out-dir .

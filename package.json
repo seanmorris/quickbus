@@ -3,10 +3,20 @@
   "version": "0.0.0",
   "description": "",
   "scripts": {
-    "build": "make"
+    "build": "make",
+    "test": "node --test"
   },
   "author": "Sean Morris",
   "devDependencies": {
-    "@babel/cli": "^7.24.8"
+    "@babel/cli": "^7.24.8",
+    "@babel/plugin-transform-modules-commonjs": "^7.27.1"
+  },
+  "main": "index.js",
+  "module": "index.mjs",
+  "exports": {
+    ".": {
+      "require": "./index.js",
+      "import": "./index.mjs"
+    }
   }
 }

@@ -18,6 +18,7 @@ const onMessage = event => {
 	}
 };
 
+
 const sendMessage = (client, action, params, accept, reject) => {
 	const token  = crypto.randomUUID();
 	const result = new Promise((_accept, _reject) => [accept, reject] = [_accept, _reject]);
@@ -26,7 +27,7 @@ const sendMessage = (client, action, params, accept, reject) => {
 
 	let recipient = client[recipientSymbol];
 
-	if(!recipient instanceof Promise)
+	if(!(recipient instanceof Promise))
 	{
 		recipient = Promise.resolve(recipient);
 	}
@@ -55,10 +56,9 @@ export class client
 		count++;
 		
 		return new Proxy(this, {
-			 get: (target, action, receiver) => (...params)  => sendMessage(
-				reciever, action, params
+			get: (target, action, receiver) => (...params)  => sendMessage(
+				receiver, action, params
 			)
 		});
 	}	
 }
-
