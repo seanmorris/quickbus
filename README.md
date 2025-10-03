@@ -51,9 +51,7 @@ Then, in the outer page, spawn a client. If you're communicating across differen
 ```js
 import { Client } from 'quickbus';
 
-const iframe = document.querySelector('iframe');
-const frameOrigin = 'https://child.example.com';
-const qbClient = new Client(iframe, iframeOrigin);
+const qbClient = new Client();
 
 async function callRemoteMethod() {
   const result = qbClient.sayHello('World');
