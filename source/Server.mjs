@@ -1,5 +1,5 @@
 export class Server
-{	
+{
 	constructor(handler, origins)
 	{
 		this.handler = handler;
@@ -10,11 +10,11 @@ export class Server
 	{
 		const { data, source } = event;
 		const { action, token, params = [] } = data;
-	
+
 		if(action in this.handler)
 		{
 			let result, error;
-			
+
 			try
 			{
 				result = await this.handler[action](...params);

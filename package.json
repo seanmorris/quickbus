@@ -18,5 +18,16 @@
       "require": "./index.js",
       "import": "./index.mjs"
     }
-  }
+  },
+  "files": [
+    "LICENSE",
+    "NOTICE",
+    "README.md",
+    "index.mjs",
+    "Client.mjs",
+    "Server.mjs",
+    "index.js",
+    "Client.js",
+    "Server.js"
+  ]
 }

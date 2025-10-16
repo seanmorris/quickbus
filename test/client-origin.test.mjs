@@ -4,13 +4,14 @@ import { Client } from '../Client.mjs';
 
 test('client posts message with correct origin', async () => {
   const fakeMessages = [];
-  const fakeRecipient = { postMessage: (msg, origin) => fakeMessages.push({ msg, origin }) };
+  const fakeRecipient = new (class extends EventTarget { postMessage = (msg, origin) => fakeMessages.push({ msg, origin }) });
+  console.log(fakeRecipient);
   const origin = 'https://example.com';
   // Stub UUID to a predictable token
   const uuidStub = crypto.randomUUID;
   crypto.randomUUID = () => 'fixed-token';
 
-  const cl = new Client(Promise.resolve(fakeRecipient), origin);
+  const cl = new Client(fakeRecipient, origin);
   cl.testAction(1, 2);
   // wait for postMessage to be invoked in a microtask
   await Promise.resolve();

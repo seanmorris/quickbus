@@ -27,30 +27,17 @@ const sendMessage = (client, action, params, accept, reject) => {
 
 	let recipient = client[recipientSymbol];
 
-	if(!(recipient instanceof Promise))
+	if(client[originSymbol])
 	{
-		recipient = Promise.resolve(recipient);
+		recipient.postMessage({action, params, token}, client[originSymbol]);
 	}
-
-	recipient.then(recipient => {
-		if(client[originSymbol])
-		{
-			recipient.postMessage({action, params, token}, client[originSymbol]);
-		}
-		else
-		{
-			recipient.postMessage({action, params, token});
-		}
-	});
+	else
+	{
+		recipient.postMessage({action, params, token});
+	}
 
 	return result;
 };
-
-if (typeof navigator !== 'undefined' && navigator.serviceWorker &&
-	typeof navigator.serviceWorker.addEventListener === 'function')
-{
-	navigator.serviceWorker.addEventListener('message', onMessage);
-}
 
 export class Client
 {
@@ -58,7 +45,9 @@ export class Client
 	{
 		this[originSymbol] = origin;
 		this[recipientSymbol] = recipient;
-		
+
+		recipient.addEventListener('message', onMessage);
+
 		return new Proxy(this, {
 				get: (target, action, receiver) => {
 
