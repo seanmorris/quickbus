@@ -2,6 +2,10 @@
 
 A small promise-based RPC layer for `postMessage` transports.
 
+[![npm version](https://img.shields.io/npm/v/quickbus?style=for-the-badge)](https://www.npmjs.com/package/quickbus)
+[![npm license](https://img.shields.io/npm/l/quickbus?style=for-the-badge)](https://www.npmjs.com/package/quickbus)
+[![CI](https://img.shields.io/github/actions/workflow/status/seanmorris/quickbus/ci.yml?branch=master&style=for-the-badge)](https://github.com/seanmorris/quickbus/actions/workflows/ci.yml)
+
 `quickbus` lets you expose a handler object on one side of a messaging boundary and call it from the other side as if it were a local async API. It is intended for:
 
 - parent page <-> iframe communication
