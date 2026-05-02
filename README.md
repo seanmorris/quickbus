@@ -9,7 +9,7 @@ A small promise-based RPC layer for `postMessage` transports.
 - page <-> service worker communication
 - `MessagePort` / `MessageChannel` communication
 
-> ### I am giving up my bed for one night.
+<!-- > ### I am giving up my bed for one night.
 > My Sleep Out helps youth facing homelessness find safe shelter and loving care at Covenant House. That care includes essential services like education, job training, medical care, mental health and substance use counseling, and legal aid — everything they need to build independent, sustainable futures.
 >
 > By supporting my Sleep Out, you are supporting the dreams of young people overcoming homelessness.
@@ -24,7 +24,7 @@ A small promise-based RPC layer for `postMessage` transports.
 >
 > Thank you.
 >
-> *and now back to your documentation...*
+> *and now back to your documentation...* -->
 
 ## Installation
 
@@ -41,26 +41,6 @@ import { Client, Server } from 'quickbus';
 ```js
 const { Client, Server } = require('quickbus');
 ```
-
-## Mental Model
-
-`quickbus` has two pieces:
-
-- `Server` listens for inbound `message` events, dispatches the requested action to a handler object, and posts the result back to the sender.
-- `Client` sends `{ action, params, token }` messages and resolves a promise when the matching `{ re: token, result, error }` reply arrives.
-
-The important design detail is that the place you send to is not always the place you listen on:
-
-- parent page -> iframe:
-  `to = iframe.contentWindow`, `from = window`
-- child iframe -> parent:
-  `to = window.parent`, `from = window`
-- `MessagePort`:
-  `to = port`, `from = port`
-- service worker from a page:
-  `to = navigator.serviceWorker.controller`, `from = navigator.serviceWorker`
-
-That is why `Client` uses named transport options and wrapper helpers instead of a single positional constructor.
 
 ## Quick Start
 
@@ -154,6 +134,43 @@ const server = new Server({
 
 self.addEventListener('message', event => {
   server.handleMessageEvent(event);
+});
+```
+
+### Service Worker To Page
+
+Page:
+
+```js
+import { Server } from 'quickbus';
+
+const server = new Server({
+  getOpenTabs() {
+    return Array.from(document.querySelectorAll('[data-tab]'))
+      .map(tab => tab.getAttribute('data-tab'));
+  }
+});
+
+window.addEventListener('message', event => {
+  server.handleMessageEvent(event);
+});
+```
+
+Service worker:
+
+```js
+import { Client } from 'quickbus';
+
+self.addEventListener('message', async event => {
+  if(event.data?.action !== 'inspect-tabs')
+  {
+    return;
+  }
+
+  const client = Client.forWindow(event.source);
+  const tabs = await client.getOpenTabs();
+
+  console.log(tabs);
 });
 ```
 
@@ -324,6 +341,26 @@ Reply shape:
 - `Server` origin filtering is opt-in. If you want origin enforcement, provide one or more origins to the constructor.
 - `Client` does not currently validate reply origin before resolving a pending token. If you need stronger guarantees, pair it with explicit server origin controls and a trusted channel topology.
 
+## Mental Model
+
+`quickbus` has two pieces:
+
+- `Server` listens for inbound `message` events, dispatches the requested action to a handler object, and posts the result back to the sender.
+- `Client` sends `{ action, params, token }` messages and resolves a promise when the matching `{ re: token, result, error }` reply arrives.
+
+The important design detail is that the place you send to is not always the place you listen on:
+
+- parent page -> iframe:
+  `to = iframe.contentWindow`, `from = window`
+- child iframe -> parent:
+  `to = window.parent`, `from = window`
+- `MessagePort`:
+  `to = port`, `from = port`
+- service worker from a page:
+  `to = navigator.serviceWorker.controller`, `from = navigator.serviceWorker`
+
+That is why `Client` uses named transport options and wrapper helpers instead of a single positional constructor.
+
 ## Development
 
 Available scripts:
@@ -354,4 +391,16 @@ The Playwright suite currently verifies:
 
 ## License
 
-See [LICENSE](./LICENSE).
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+Copyright 2025-2026 Sean Morris
