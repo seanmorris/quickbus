@@ -1,15 +1,28 @@
 {
   "name": "quickbus",
-  "version": "0.0.0",
-  "description": "",
+  "version": "1.0.0",
+  "description": "Promise-based RPC wrapper for postMessage transports.",
   "scripts": {
     "build": "make",
-    "test": "node --test"
+    "test": "node --test test/*.test.mjs",
+    "pretest:e2e": "npm run build",
+    "test:e2e": "playwright test",
+    "lint": "eslint source/",
+    "lint:fix": "eslint source/ --fix",
+    "tsc": "tsc -p jsconfig.json --noEmit"
   },
   "author": "Sean Morris",
+  "license": "Apache-2.0",
   "devDependencies": {
     "@babel/cli": "^7.24.8",
-    "@babel/plugin-transform-modules-commonjs": "^7.27.1"
+    "@babel/plugin-transform-modules-commonjs": "^7.27.1",
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.6.0",
+    "baseline-browser-mapping": "^2.10.25",
+    "eslint": "^10.3.0",
+    "eslint-plugin-jsdoc": "^62.9.0",
+    "globals": "^17.6.0",
+    "sm-no-saccade-style": "^0.1.1"
   },
   "main": "index.js",
   "module": "index.mjs",

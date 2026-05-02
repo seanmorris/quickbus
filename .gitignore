@@ -2,3 +2,4 @@ node_modules/
 /*.mjs
 /*.js
 !source/*
+test-results/

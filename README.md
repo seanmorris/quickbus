@@ -1,6 +1,13 @@
 # quickbus
 
-A lightweight promise-based RPC wrapper for `postMessage`-style communication (ServiceWorker, iframe, cross-domain).
+A small promise-based RPC layer for `postMessage` transports.
+
+`quickbus` lets you expose a handler object on one side of a messaging boundary and call it from the other side as if it were a local async API. It is intended for:
+
+- parent page <-> iframe communication
+- window <-> popup communication
+- page <-> service worker communication
+- `MessagePort` / `MessageChannel` communication
 
 > ### I am giving up my bed for one night.
 > My Sleep Out helps youth facing homelessness find safe shelter and loving care at Covenant House. That care includes essential services like education, job training, medical care, mental health and substance use counseling, and legal aid — everything they need to build independent, sustainable futures.
@@ -28,122 +35,323 @@ npm install quickbus
 ## Importing
 
 ```js
-// ES Modules
 import { Client, Server } from 'quickbus';
 ```
+
 ```js
-// CommonJS
 const { Client, Server } = require('quickbus');
 ```
 
-## Architecture
+## Mental Model
 
-quickbus implements a simple server/client protocol.
+`quickbus` has two pieces:
 
-A server exposes a set of methods that can be called by the client. It can run in a tab, iframe, or worker/serviceworker.
+- `Server` listens for inbound `message` events, dispatches the requested action to a handler object, and posts the result back to the sender.
+- `Client` sends `{ action, params, token }` messages and resolves a promise when the matching `{ re: token, result, error }` reply arrives.
 
-### ServiceWorker Messaging
+The important design detail is that the place you send to is not always the place you listen on:
 
-#### In your ServiceWorker (the "server" side)
+- parent page -> iframe:
+  `to = iframe.contentWindow`, `from = window`
+- child iframe -> parent:
+  `to = window.parent`, `from = window`
+- `MessagePort`:
+  `to = port`, `from = port`
+- service worker from a page:
+  `to = navigator.serviceWorker.controller`, `from = navigator.serviceWorker`
 
-Spawn a quickbus server within an iframe to expose methods to pages.
+That is why `Client` uses named transport options and wrapper helpers instead of a single positional constructor.
 
-```js
-import { Server } from 'quickbus';
+## Quick Start
 
-const qbServer = new Server({
-  sayHello(to) {
-    return `Hello, ${to}!`;
-  }
-});
+### Parent Page To Iframe
 
-globalThis.addEventListener('message', event => {
-  qbServer.handleMessageEvent(event);
-});
-```
-
-#### In your page (the "client" side)
-
-Spawn a quickbus client and call your method, and await the result.
-
-Pass `navigator.serviceWorker.controller` to select the service worker as the recipient of the client's requests.
-
-```js
-import { Client } from 'quickbus';
-
-async function callRemoteMethod() {
-  const qbClient = new Client(navigator.serviceWorker.controller);
-  const greeting = await qbClient.sayHello('World');
-  console.log(greeting); // Hello, World!
-}
-
-callRemoteMethod();
-```
-
-### iFrames
-
-#### In your iFrame (the "server" side)
-
-Spawn a quickbus server within an iframe to expose methods to the outer page. This can also be done vice versa.
-
-If you plan to communicate across different origins, supply the target origin as the second parameter.
-
-```js
-import { Server } from 'quickbus';
-
-const handler = {
-  sayHello: (to) => {
-    return `Hello, ${to}!`;
-  }
-};
-
-const qbServer = new Server(handler, 'https://example.com');
-
-globalThis.addEventListener('message', event => {
-  qbServer.handleMessageEvent(event);
-});
-```
-
-#### In your page (the "client" side)
-
-Spawn a quickbus client and call your method, and await the result.
-
-Pass the iframe as the first parameter to select it as the recipient of the client's requests.
-
-You'll also need to pass its origin as the second parameter if you plan to make cross-domain calls.
+Page:
 
 ```js
 import { Client } from 'quickbus';
 
 const iframe = document.querySelector('iframe');
 const frameOrigin = 'https://child.example.com';
-const qbClient = new Client(iframe.contentWindow, frameOrigin);
+const bus = Client.forIframe(iframe, frameOrigin);
 
-async function callRemoteMethod() {
-  const greeting = await qbClient.sayHello('World');
-  console.log(greeting); // Hello, World!
-}
-
-callRemoteMethod();
+const greeting = await bus.sayHello('World');
+console.log(greeting);
 ```
 
-## API Reference
+Iframe:
 
-### `Client(recipient, origin?)`
+```js
+import { Server } from 'quickbus';
 
-- **recipient**: A `Window`-like object (e.g. `WindowClient` or `Window`) with `.postMessage(...)`.
-- **origin**: Optional second argument passed as `targetOrigin` for `postMessage`; defaults to `*` (same-origin).
+const server = new Server({
+  sayHello(to) {
+    return `Hello, ${to}!`;
+  }
+}, 'https://parent.example.com');
 
-Returns a Proxy: any method call (`bus.foo(arg1, arg2)`) sends `{ action: 'foo', params: [arg1, arg2], token }` and returns a Promise resolving to the remote result.
+window.addEventListener('message', event => {
+  server.handleMessageEvent(event);
+});
+```
 
-### `Server(handler, origins?)`
+### Child Iframe To Parent Window
 
-- **handler**: An object whose methods (sync or async) implement your RPC endpoints.
-- **origins**: Optional array of acceptable `targetOrigin`s for responses; defaults to same-origin.
+Parent:
 
-Use `server.handleMessageEvent(event)` inside a `message` event listener to dispatch RPC calls and post responses back.
+```js
+import { Server } from 'quickbus';
+
+const server = new Server({
+  sayHello(name) {
+    return `Hello from ${name}!`;
+  }
+}, window.location.origin);
+
+window.addEventListener('message', event => {
+  server.handleMessageEvent(event);
+});
+```
+
+Child iframe:
+
+```js
+import { Client } from 'quickbus';
+
+const bus = Client.forWindow(window.parent, window.location.origin);
+const message = await bus.sayHello('Parent');
+console.log(message);
+```
+
+### Page To Service Worker
+
+Page:
+
+```js
+import { Client } from 'quickbus';
+
+await navigator.serviceWorker.register('/sw.mjs', { type: 'module' });
+await navigator.serviceWorker.ready;
+
+const bus = Client.forServiceWorker(navigator.serviceWorker);
+const greeting = await bus.sayHello('Worker');
+console.log(greeting);
+```
+
+Service worker:
+
+```js
+import { Server } from 'quickbus';
+
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+
+const server = new Server({
+  sayHello(to) {
+    return `Hello, ${to}!`;
+  }
+});
+
+self.addEventListener('message', event => {
+  server.handleMessageEvent(event);
+});
+```
+
+### MessagePort
+
+```js
+import { Client, Server } from 'quickbus';
+
+const channel = new MessageChannel();
+
+const client = Client.forMessagePort(channel.port1);
+const server = new Server({
+  add(a, b) {
+    return a + b;
+  }
+});
+
+channel.port2.addEventListener('message', event => {
+  server.handleMessageEvent(event);
+});
+
+channel.port2.start?.();
+channel.port1.start?.();
+
+console.log(await client.add(2, 3));
+```
+
+## Client API
+
+### `new Client({ to, from?, origin? })`
+
+Creates a proxy-backed RPC client.
+
+Parameters:
+
+- `to`: required `postMessage` target
+- `from`: optional event target that receives reply `message` events
+- `origin`: optional `targetOrigin` for outbound `postMessage(...)`
+
+Example:
+
+```js
+const bus = new Client({
+  to: iframe.contentWindow,
+  from: window,
+  origin: 'https://child.example.com'
+});
+```
+
+Notes:
+
+- If `from` is omitted, `Client` first tries `globalThis`.
+- If `globalThis` cannot receive `message` events in the current runtime, it falls back to `to` when possible.
+- The constructor accepts a named options object only.
+
+### `Client.forIframe(iframe, origin?, from?)`
+
+Convenience wrapper for parent-page-to-iframe messaging.
+
+Equivalent to:
+
+```js
+new Client({
+  to: iframe.contentWindow,
+  from,
+  origin
+});
+```
+
+When `from` is omitted, the normal `Client` fallback logic applies, which usually resolves to the parent `window`.
+
+### `Client.forWindow(targetWindow, origin?, from?)`
+
+Convenience wrapper for window or popup targets such as:
+
+- `window.parent`
+- `window.opener`
+- a handle returned by `window.open(...)`
+
+### `Client.forServiceWorker(serviceWorkerOrContainer, from?)`
+
+Convenience wrapper for service worker messaging from a page.
+
+Accepted inputs:
+
+- `navigator.serviceWorker`
+- `navigator.serviceWorker.controller`
+- a `ServiceWorker`-like target
+
+If you pass a `ServiceWorkerContainer` such as `navigator.serviceWorker`, `quickbus` uses:
+
+- `to = navigator.serviceWorker.controller`
+- `from = navigator.serviceWorker` by default
+
+That default matters because service worker replies are delivered on the container, not the page `window`.
+
+### `Client.forMessagePort(port, origin?)`
+
+Convenience wrapper for `MessagePort`.
+
+This uses the same port for both directions:
+
+- `to = port`
+- `from = port`
+
+## Server API
+
+### `new Server(handler, ...origins)`
+
+Creates an RPC server that dispatches inbound actions to `handler`.
+
+Parameters:
+
+- `handler`: object whose function properties implement your RPC methods
+- `...origins`: optional allowlist of acceptable `event.origin` values
+
+Example:
 
 ```js
 const server = new Server(handler, 'https://client.example.com');
-globalThis.addEventListener('message', server.handleMessageEvent.bind(server));
 ```
+
+Behavior:
+
+- If no origins are provided, replies are allowed by default.
+- If one or more origins are provided, replies are only sent when `event.origin` matches one of them.
+- Responses are posted back through `event.source`.
+
+### `server.handleMessageEvent(event)`
+
+Handles one inbound `message` event.
+
+Typical usage:
+
+```js
+window.addEventListener('message', event => {
+  server.handleMessageEvent(event);
+});
+```
+
+The handler return value may be synchronous or async. Errors are caught, serialized with `JSON.stringify`, and returned as the `error` field in the reply payload.
+
+## Protocol
+
+Outgoing request shape:
+
+```js
+{
+  action: 'methodName',
+  params: [arg1, arg2],
+  token: 'uuid'
+}
+```
+
+Reply shape:
+
+```js
+{
+  re: 'uuid',
+  result: value,
+  error: serializedError
+}
+```
+
+## Security Notes
+
+- Always pass explicit origins for cross-origin iframe or window messaging.
+- `Server` origin filtering is opt-in. If you want origin enforcement, provide one or more origins to the constructor.
+- `Client` does not currently validate reply origin before resolving a pending token. If you need stronger guarantees, pair it with explicit server origin controls and a trusted channel topology.
+
+## Development
+
+Available scripts:
+
+```bash
+npm run build
+npm test
+npm run test:e2e
+npm run lint
+npm run tsc
+```
+
+What they do:
+
+- `npm run build`: rebuilds the published root artifacts from `source/`
+- `npm test`: runs the Node unit tests in `test/*.test.mjs`
+- `npm run test:e2e`: runs the Playwright browser transport tests
+- `npm run lint`: runs ESLint on `source/`
+- `npm run tsc`: runs TypeScript checking against the JSDoc-typed source
+
+## Current Browser Coverage
+
+The Playwright suite currently verifies:
+
+- parent page -> iframe RPC
+- child iframe -> parent window RPC
+- page -> service worker RPC
+
+## License
+
+See [LICENSE](./LICENSE).
