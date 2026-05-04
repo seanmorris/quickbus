@@ -63,6 +63,22 @@ const greeting = await bus.sayHello('World');
 console.log(greeting);
 ```
 
+Each client call returns an awaitable request handle. That means this still works:
+
+```js
+const greeting = await bus.sayHello('World');
+```
+
+But you can also keep the handle and abort it locally if the caller decides to stop waiting:
+
+```js
+const request = bus.sayHello('World');
+
+setTimeout(() => request.abort(), 5000);
+
+const greeting = await request;
+```
+
 Iframe:
 
 ```js
@@ -229,6 +245,8 @@ Notes:
 - If `from` is omitted, `Client` first tries `globalThis`.
 - If `globalThis` cannot receive `message` events in the current runtime, it falls back to `to` when possible.
 - The constructor accepts a named options object only.
+- Each RPC method returns a promise-like request handle with `.abort()`.
+- Aborting a request clears the local pending token, but does not send a cancellation message to the remote transport.
 
 ### `Client.forIframe(iframe, origin?, from?)`
 

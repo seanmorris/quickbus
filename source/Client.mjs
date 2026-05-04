@@ -15,6 +15,17 @@ const fromSymbol = Symbol('from');
 const canListen = target => target && typeof target.addEventListener === 'function';
 
 const getGlobalListenerTarget = () => canListen(globalThis) ? globalThis : null;
+const promiseMethodNames = new Set(['then', 'catch', 'finally']);
+
+const createAbortError = (action, params) => {
+	const error = new Error(`Aborted RPC request "${action}".`);
+
+	error.name = 'AbortError';
+	error.action = action;
+	error.params = params;
+
+	return error;
+};
 
 const normalizeOptions = options => {
 	if(options && typeof options === 'object' && 'to' in options)
@@ -57,33 +68,73 @@ const onMessage = event => {
 
 		if(!event.data.error)
 		{
-			callbacks[0](event.data.result);
+			callbacks.resolve(event.data.result);
 		}
 		else
 		{
-			callbacks[1](event.data.error);
+			callbacks.reject(event.data.error);
 		}
 	}
 };
 
-const sendMessage = (client, action, params, accept, reject) => {
+const createRequestHandle = (promise, abort) => ({
+	abort
+	, then: promise.then.bind(promise)
+	, catch: promise.catch.bind(promise)
+	, finally: promise.finally.bind(promise)
+	, [Symbol.toStringTag]: 'Promise'
+});
+
+const sendMessage = (client, action, params) => {
 	const token  = crypto.randomUUID();
+	let accept;
+	let reject;
+	let settled = false;
+
 	const result = new Promise((_accept, _reject) => [accept, reject] = [_accept, _reject]);
 
-	incomplete.set(token, [accept, reject]);
+	const settle = (callback, value) => {
+		if(settled)
+		{
+			return;
+		}
 
-	let recipient = client[toSymbol];
+		settled = true;
+		incomplete.delete(token);
+		callback(value);
+	};
 
-	if(client[originSymbol])
+	const request = createRequestHandle(
+		result
+		, () => settle(reject, createAbortError(action, params))
+	);
+
+	incomplete.set(token, {
+		resolve: value => settle(accept, value)
+		, reject: error => settle(reject, error)
+	});
+
+	try
 	{
-		recipient.postMessage({action, params, token}, client[originSymbol]);
+		const recipient = client[toSymbol];
+
+		if(client[originSymbol])
+		{
+			recipient.postMessage({action, params, token}, client[originSymbol]);
+		}
+		else
+		{
+			recipient.postMessage({action, params, token});
+		}
 	}
-	else
+	catch(error)
 	{
-		recipient.postMessage({action, params, token});
+		incomplete.delete(token);
+		settled = true;
+		reject(error);
 	}
 
-	return result;
+	return request;
 };
 
 /**
@@ -107,6 +158,20 @@ export class Client
 
 		return new Proxy(this, {
 			get: (target, action, receiver) => {
+				if(typeof action === 'string' && action in target)
+				{
+					const value = target[action];
+
+					return typeof value === 'function'
+						? value.bind(receiver)
+						: value;
+				}
+
+				if(typeof action === 'string' && promiseMethodNames.has(action))
+				{
+					return undefined;
+				}
+
 				if(typeof action === 'symbol')
 				{
 					return target[action];
