@@ -10,12 +10,14 @@ const fromSymbol = Symbol('from');
  * @typedef {{ to: PostMessageTarget, from?: MessageEventTarget | null, origin?: string | null }} ClientOptions
  * @typedef {{ contentWindow: PostMessageTarget | null }} IframeLike
  * @typedef {{ controller: PostMessageTarget | null, addEventListener(type: 'message', listener: (event: MessageEvent) => void): void }} ServiceWorkerContainerLike
+ * @typedef {{ active: PostMessageTarget | null }} ServiceWorkerRegistrationLike
  */
 
 const canListen = target => target && typeof target.addEventListener === 'function';
 
 const getGlobalListenerTarget = () => canListen(globalThis) ? globalThis : null;
 const promiseMethodNames = new Set(['then', 'catch', 'finally']);
+const getDefaultServiceWorkerReplyTarget = () => globalThis.navigator?.serviceWorker ?? null;
 
 const createAbortError = (action, params) => {
 	const error = new Error(`Aborted RPC request "${action}".`);
@@ -244,5 +246,23 @@ export class Client
 		}
 
 		return new Client({to, from: replyTarget});
+	}
+
+	/**
+	 * Create a client for an active service worker registration target.
+	 * @param {ServiceWorkerRegistrationLike} registration Registration with an active worker.
+	 * @param {MessageEventTarget | null} [from] Optional local event target that receives replies.
+	 * @returns {Client} Configured service-worker-registration client.
+	 */
+	static forServiceWorkerRegistration(
+		registration
+		, from = getDefaultServiceWorkerReplyTarget()
+	) {
+		if(!registration?.active)
+		{
+			throw new TypeError('ServiceWorker registration client requires an active worker.');
+		}
+
+		return new Client({to: registration.active, from});
 	}
 }

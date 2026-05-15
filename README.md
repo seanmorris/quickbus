@@ -138,6 +138,19 @@ const greeting = await bus.sayHello('Worker');
 console.log(greeting);
 ```
 
+`Client.forServiceWorker(navigator.serviceWorker)` requires the page to already be controlled by the worker. On first load, register the worker, wait for `ready`, and use the registration helper instead:
+
+```js
+import { Client } from 'quickbus';
+
+await navigator.serviceWorker.register('/sw.mjs', { type: 'module' });
+const registration = await navigator.serviceWorker.ready;
+
+const bus = Client.forServiceWorkerRegistration(registration);
+const greeting = await bus.sayHello('Worker');
+console.log(greeting);
+```
+
 Service worker:
 
 ```js
@@ -288,6 +301,19 @@ If you pass a `ServiceWorkerContainer` such as `navigator.serviceWorker`, `quick
 - `from = navigator.serviceWorker` by default
 
 That default matters because service worker replies are delivered on the container, not the page `window`.
+
+When you need to talk to a newly registered worker before it controls the page, use `Client.forServiceWorkerRegistration(...)` instead of `Client.forServiceWorker(navigator.serviceWorker)`.
+
+### `Client.forServiceWorkerRegistration(registration, from?)`
+
+Convenience wrapper for page-to-service-worker messaging through a `ServiceWorkerRegistration`.
+
+This uses:
+
+- `to = registration.active`
+- `from = navigator.serviceWorker` by default when available
+
+This is the helper to use after `await navigator.serviceWorker.ready` on a first-load page that is not yet controlled by the worker.
 
 ### `Client.forMessagePort(port, origin?)`
 

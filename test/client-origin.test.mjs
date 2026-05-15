@@ -47,3 +47,70 @@ test('iframe client listens on the provided from target', async () => {
     origin: 'https://child.example.com'
   });
 });
+
+test('service-worker-registration client listens on navigator.serviceWorker by default', async () => {
+  const fakeMessages = [];
+  const fakeActiveWorker = {
+    postMessage: msg => fakeMessages.push(msg)
+  };
+  const fakeServiceWorker = new EventTarget();
+  const originalNavigator = globalThis.navigator;
+  const uuidStub = crypto.randomUUID;
+
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: {
+      ...(originalNavigator ?? {}),
+      serviceWorker: fakeServiceWorker
+    }
+  });
+
+  crypto.randomUUID = () => 'service-worker-token';
+
+  try
+  {
+    const client = Client.forServiceWorkerRegistration({
+      active: fakeActiveWorker
+    });
+    const request = client.sayHello('Worker');
+
+    queueMicrotask(() => {
+      fakeServiceWorker.dispatchEvent(new MessageEvent('message', {
+        data: {
+          re: 'service-worker-token',
+          result: 'Hello, Worker!'
+        }
+      }));
+    });
+
+    assert.strictEqual(await request, 'Hello, Worker!');
+    assert.deepStrictEqual(fakeMessages[0], {
+      action: 'sayHello',
+      params: ['Worker'],
+      token: 'service-worker-token'
+    });
+  }
+  finally
+  {
+    crypto.randomUUID = uuidStub;
+
+    if(originalNavigator === undefined)
+    {
+      delete globalThis.navigator;
+    }
+    else
+    {
+      Object.defineProperty(globalThis, 'navigator', {
+        configurable: true,
+        value: originalNavigator
+      });
+    }
+  }
+});
+
+test('service-worker-registration client requires an active worker', () => {
+  assert.throws(
+    () => Client.forServiceWorkerRegistration({active: null}),
+    /ServiceWorker registration client requires an active worker\./
+  );
+});

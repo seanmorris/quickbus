@@ -182,6 +182,25 @@ test.describe('quickbus browser transports', () => {
 		await expect(page.frameLocator('#child').locator('#result')).toHaveText('Hello from Parent!');
 	});
 
+	test('supports first-load page-to-service-worker rpc via registration', async({ page }) => {
+		await page.goto(`${fixtureServer.baseUrl}/service-worker-page.html`);
+		const result = page.locator('#result');
+		const text = await page.evaluate(async() => {
+			const { Client } = await import('/Client.mjs');
+			const resultNode = document.querySelector('#result');
+			await navigator.serviceWorker.register('/sw.mjs', { type: 'module' });
+			const registration = await navigator.serviceWorker.ready;
+
+			const bus = Client.forServiceWorkerRegistration(registration);
+			const text = await bus.sayHello('Worker');
+			resultNode.textContent = text;
+			return text;
+		});
+
+		expect(text).toBe('Hello, Worker!');
+		await expect(result).toHaveText('Hello, Worker!');
+	});
+
 	test('supports page-to-service-worker rpc', async({ page }) => {
 		await page.goto(`${fixtureServer.baseUrl}/service-worker-page.html`);
 		const result = page.locator('#result');
