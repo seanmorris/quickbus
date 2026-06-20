@@ -231,6 +231,63 @@ channel.port1.start?.();
 console.log(await client.add(2, 3));
 ```
 
+### String-Only Transports
+
+Some `postMessage`-style bridges only accept strings or do not expose a browser
+`MessageEvent.source` reply target. Use a custom transport for those cases.
+
+Web page inside a React Native WebView:
+
+```js
+import { Client } from 'quickbus';
+
+const bus = new Client({
+  send(message) {
+    window.ReactNativeWebView.postMessage(message);
+  },
+  listen(callback) {
+    const handler = event => callback(event.data, event);
+
+    window.addEventListener('message', handler);
+    document.addEventListener('message', handler);
+
+    return () => {
+      window.removeEventListener('message', handler);
+      document.removeEventListener('message', handler);
+    };
+  },
+  encode: JSON.stringify,
+  decode: JSON.parse
+});
+
+const token = await bus.getBioToken();
+```
+
+React Native side:
+
+```js
+import { Server } from 'quickbus';
+
+const server = new Server({
+  getBioToken() {
+    return getBioToken();
+  },
+  registerBioToken(token) {
+    return registerBioToken(token);
+  }
+}, 'https://app.example.com');
+
+function onMessage(event) {
+  server.handleMessage({
+    data: JSON.parse(event.nativeEvent.data),
+    origin: new URL(event.nativeEvent.url).origin,
+    reply(message) {
+      webviewRef.current?.postMessage(JSON.stringify(message));
+    }
+  });
+}
+```
+
 ## Client API
 
 ### `new Client({ to, from?, origin? })`
@@ -242,6 +299,10 @@ Parameters:
 - `to`: required `postMessage` target
 - `from`: optional event target that receives reply `message` events
 - `origin`: optional `targetOrigin` for outbound `postMessage(...)`
+- `encode`: optional function that converts outgoing protocol objects before sending
+- `decode`: optional function that converts incoming reply payloads before matching them
+- `replyOrigins`: optional allowed origin or origin list for replies
+- `timeout`: optional request timeout in milliseconds
 
 Example:
 
@@ -260,6 +321,40 @@ Notes:
 - The constructor accepts a named options object only.
 - Each RPC method returns a promise-like request handle with `.abort()`.
 - Aborting a request clears the local pending token, but does not send a cancellation message to the remote transport.
+- Timed out requests reject with a `TimeoutError`.
+
+### `new Client({ send, listen, encode?, decode?, replyOrigins?, timeout? })`
+
+Creates a proxy-backed RPC client around a custom transport.
+
+Parameters:
+
+- `send`: function called with each outbound protocol message
+- `listen`: function that receives a callback for inbound replies
+- `encode`: optional function that converts outgoing protocol objects before `send`
+- `decode`: optional function that converts inbound reply payloads before matching them
+- `replyOrigins`: optional allowed origin or origin list for replies
+- `timeout`: optional request timeout in milliseconds
+
+The `listen` callback accepts the inbound message as its first argument and may
+receive either an event-like object with `origin` or an origin string as its
+second argument. If `listen` returns a function, `client.dispose()` calls it.
+
+Example:
+
+```js
+const bus = new Client({
+  send: message => bridge.postMessage(JSON.stringify(message)),
+  listen: callback => {
+    bridge.onMessage(payload => callback(JSON.parse(payload)));
+  }
+});
+```
+
+### `client.dispose()`
+
+Removes this client's reply listener when cleanup is available and rejects all
+pending requests with an `AbortError`.
 
 ### `Client.forIframe(iframe, origin?, from?)`
 
@@ -345,7 +440,25 @@ Behavior:
 
 - If no origins are provided, replies are allowed by default.
 - If one or more origins are provided, replies are only sent when `event.origin` matches one of them.
-- Responses are posted back through `event.source`.
+- `handleMessageEvent(...)` posts responses back through the event source when available.
+
+### `server.handleMessage(message)`
+
+Handles one normalized inbound message.
+
+```js
+server.handleMessage({
+  data: { action: 'add', params: [2, 3], token: 'uuid' },
+  origin: 'https://client.example.com',
+  reply: message => bridge.postMessage(JSON.stringify(message))
+});
+```
+
+Parameters:
+
+- `data`: decoded RPC request object
+- `origin`: optional sender origin used with the server allowlist
+- `reply`: function that sends the response object back to the caller
 
 ### `server.handleMessageEvent(event)`
 
@@ -387,7 +500,7 @@ Reply shape:
 
 - Always pass explicit origins for cross-origin iframe or window messaging.
 - `Server` origin filtering is opt-in. If you want origin enforcement, provide one or more origins to the constructor.
-- `Client` does not currently validate reply origin before resolving a pending token. If you need stronger guarantees, pair it with explicit server origin controls and a trusted channel topology.
+- `Client` reply origin filtering is opt-in. Use `replyOrigins` when the reply event includes a meaningful origin.
 
 ## Mental Model
 

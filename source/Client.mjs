@@ -1,26 +1,55 @@
-const incomplete = new Map;
-
-const originSymbol = Symbol('origin');
-const toSymbol = Symbol('to');
-const fromSymbol = Symbol('from');
+const sendSymbol = Symbol('send');
+const listenCleanupSymbol = Symbol('listenCleanup');
+const pendingSymbol = Symbol('pending');
+const replyOriginsSymbol = Symbol('replyOrigins');
+const timeoutSymbol = Symbol('timeout');
+const encodeSymbol = Symbol('encode');
+const decodeSymbol = Symbol('decode');
 
 /**
  * @typedef {{ postMessage(message: unknown, targetOrigin?: string): void }} PostMessageTarget
- * @typedef {{ addEventListener(type: 'message', listener: (event: MessageEvent) => void): void }} MessageEventTarget
- * @typedef {{ to: PostMessageTarget, from?: MessageEventTarget | null, origin?: string | null }} ClientOptions
+ * @typedef {{ addEventListener: (type: string, listener: (event: MessageEvent) => void) => void, removeEventListener?: (type: string, listener: (event: MessageEvent) => void) => void }} MessageEventTarget
+ * @typedef {(message: unknown) => unknown} MessageCodec
+ * @typedef {{ origin?: string }} MessageMetadata
+ * @typedef {(message: unknown, metadata?: MessageMetadata | MessageEvent | string) => void} MessageListener
+ * @typedef {() => void} ListenerCleanup
+ * @typedef {{ to: PostMessageTarget, from?: MessageEventTarget | null, origin?: string | null, encode?: MessageCodec, decode?: MessageCodec, replyOrigins?: string[] | string | null, timeout?: number | null }} PostMessageClientOptions
+ * @typedef {{ send(message: unknown): void, listen(listener: MessageListener): void | ListenerCleanup, encode?: MessageCodec, decode?: MessageCodec, replyOrigins?: string[] | string | null, timeout?: number | null }} CustomTransportClientOptions
+ * @typedef {PostMessageClientOptions | CustomTransportClientOptions} ClientOptions
  * @typedef {{ contentWindow: PostMessageTarget | null }} IframeLike
  * @typedef {{ controller: PostMessageTarget | null, addEventListener(type: 'message', listener: (event: MessageEvent) => void): void }} ServiceWorkerContainerLike
  * @typedef {{ active: PostMessageTarget | null }} ServiceWorkerRegistrationLike
  */
 
+const identity = value => value;
 const canListen = target => target && typeof target.addEventListener === 'function';
-
 const getGlobalListenerTarget = () => canListen(globalThis) ? globalThis : null;
 const promiseMethodNames = new Set(['then', 'catch', 'finally']);
 const getDefaultServiceWorkerReplyTarget = () => globalThis.navigator?.serviceWorker ?? null;
+const hasOrigin = metadata => metadata && typeof metadata === 'object' && 'origin' in metadata;
+const isObject = value => value && typeof value === 'object';
+
+const createToken = () => {
+	if(globalThis.crypto?.randomUUID)
+	{
+		return globalThis.crypto.randomUUID();
+	}
+
+	if(globalThis.crypto?.getRandomValues)
+	{
+		const values = new Uint32Array(4);
+		globalThis.crypto.getRandomValues(values);
+
+		return Array.from(values, value => value.toString(16).padStart(8, '0')).join('');
+	}
+
+	return `quickbus-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
 
 const createAbortError = (action, params) => {
-	const error = new Error(`Aborted RPC request "${action}".`);
+	const error = /** @type {Error & { action?: string, params?: unknown[] }} */(
+		new Error(`Aborted RPC request "${action}".`)
+	);
 
 	error.name = 'AbortError';
 	error.action = action;
@@ -29,17 +58,66 @@ const createAbortError = (action, params) => {
 	return error;
 };
 
-const normalizeOptions = options => {
-	if(options && typeof options === 'object' && 'to' in options)
+const createTimeoutError = (action, params, timeout) => {
+	const error = /** @type {Error & { action?: string, params?: unknown[], timeout?: number }} */(
+		new Error(`Timed out RPC request "${action}" after ${timeout}ms.`)
+	);
+
+	error.name = 'TimeoutError';
+	error.action = action;
+	error.params = params;
+	error.timeout = timeout;
+
+	return error;
+};
+
+const createDisposeError = () => {
+	const error = new Error('Disposed RPC client.');
+
+	error.name = 'AbortError';
+
+	return error;
+};
+
+const normalizeCodec = (codec, name) => {
+	if(codec === undefined || codec === null)
 	{
-		return {
-			to: options.to
-			, origin: options.origin ?? undefined
-			, from: options.from ?? undefined
-		};
+		return identity;
 	}
 
-	throw new TypeError('Client requires a named options object with a "to" target.');
+	if(typeof codec !== 'function')
+	{
+		throw new TypeError(`Client option "${name}" must be a function.`);
+	}
+
+	return codec;
+};
+
+const normalizeTimeout = timeout => {
+	if(timeout === undefined || timeout === null)
+	{
+		return undefined;
+	}
+
+	if(typeof timeout !== 'number' || !Number.isFinite(timeout) || timeout < 0)
+	{
+		throw new TypeError('Client option "timeout" must be a non-negative number.');
+	}
+
+	return timeout;
+};
+
+const normalizeReplyOrigins = replyOrigins => {
+	if(replyOrigins === undefined || replyOrigins === null)
+	{
+		return new Set;
+	}
+
+	const origins = Array.isArray(replyOrigins)
+		? replyOrigins
+		: [replyOrigins];
+
+	return new Set(origins);
 };
 
 const resolveListenerTarget = (to, from) => {
@@ -63,19 +141,124 @@ const resolveListenerTarget = (to, from) => {
 	throw new TypeError('No valid message event target was provided for Client replies.');
 };
 
-const onMessage = event => {
-	if(event.data.re && incomplete.has(event.data.re))
+const createPostMessageSender = (target, origin) => message => {
+	if(origin)
 	{
-		const callbacks = incomplete.get(event.data.re);
+		target.postMessage(message, origin);
+	}
+	else
+	{
+		target.postMessage(message);
+	}
+};
 
-		if(!event.data.error)
+const createPostMessageListener = target => callback => {
+	const listener = event => callback(event.data, event);
+
+	target.addEventListener('message', listener);
+
+	if(typeof target.removeEventListener === 'function')
+	{
+		return () => target.removeEventListener('message', listener);
+	}
+
+	return undefined;
+};
+
+const normalizeOptions = options => {
+	if(!options || typeof options !== 'object')
+	{
+		throw new TypeError('Client requires a named options object.');
+	}
+
+	const encode = normalizeCodec(options.encode, 'encode');
+	const decode = normalizeCodec(options.decode, 'decode');
+	const timeout = normalizeTimeout(options.timeout);
+	const replyOrigins = normalizeReplyOrigins(options.replyOrigins);
+
+	if('send' in options || 'listen' in options)
+	{
+		if(typeof options.send !== 'function' || typeof options.listen !== 'function')
 		{
-			callbacks.resolve(event.data.result);
+			throw new TypeError('Client custom transport requires "send" and "listen" functions.');
 		}
-		else
-		{
-			callbacks.reject(event.data.error);
-		}
+
+		return {
+			send: options.send
+			, listen: options.listen
+			, encode
+			, decode
+			, replyOrigins
+			, timeout
+		};
+	}
+
+	if('to' in options)
+	{
+		const from = resolveListenerTarget(options.to, options.from);
+
+		return {
+			send: createPostMessageSender(options.to, options.origin ?? undefined)
+			, listen: createPostMessageListener(from)
+			, encode
+			, decode
+			, replyOrigins
+			, timeout
+		};
+	}
+
+	throw new TypeError('Client requires either a "to" target or custom "send" and "listen" functions.');
+};
+
+const getMessageOrigin = metadata => {
+	if(typeof metadata === 'string')
+	{
+		return metadata;
+	}
+
+	if(hasOrigin(metadata) && typeof metadata.origin === 'string')
+	{
+		return metadata.origin;
+	}
+
+	return undefined;
+};
+
+const handleReplyMessage = (client, message, metadata) => {
+	let data;
+
+	try
+	{
+		data = client[decodeSymbol](message);
+	}
+	catch(error)
+	{
+		console.warn('Could not decode quickbus reply message.', error);
+		return;
+	}
+
+	if(!isObject(data) || !data.re || !client[pendingSymbol].has(data.re))
+	{
+		return;
+	}
+
+	const origin = getMessageOrigin(metadata);
+
+	if(client[replyOriginsSymbol].size && (!origin || !client[replyOriginsSymbol].has(origin)))
+	{
+		console.warn(`Got a reply from unauthorized origin: ${origin ?? 'unknown origin'}`);
+		return;
+	}
+
+	const callbacks = client[pendingSymbol].get(data.re);
+
+	if(!data.error)
+	{
+		callbacks.resolve(data.result);
+	}
+	else
+	{
+		callbacks.reject(data.error);
 	}
 };
 
@@ -88,10 +271,11 @@ const createRequestHandle = (promise, abort) => ({
 });
 
 const sendMessage = (client, action, params) => {
-	const token  = crypto.randomUUID();
+	const token  = createToken();
 	let accept;
 	let reject;
 	let settled = false;
+	let timeoutId;
 
 	const result = new Promise((_accept, _reject) => [accept, reject] = [_accept, _reject]);
 
@@ -102,7 +286,13 @@ const sendMessage = (client, action, params) => {
 		}
 
 		settled = true;
-		incomplete.delete(token);
+		client[pendingSymbol].delete(token);
+
+		if(timeoutId !== undefined)
+		{
+			clearTimeout(timeoutId);
+		}
+
 		callback(value);
 	};
 
@@ -111,29 +301,26 @@ const sendMessage = (client, action, params) => {
 		, () => settle(reject, createAbortError(action, params))
 	);
 
-	incomplete.set(token, {
+	client[pendingSymbol].set(token, {
 		resolve: value => settle(accept, value)
 		, reject: error => settle(reject, error)
 	});
 
+	if(client[timeoutSymbol] !== undefined)
+	{
+		timeoutId = setTimeout(
+			() => settle(reject, createTimeoutError(action, params, client[timeoutSymbol]))
+			, client[timeoutSymbol]
+		);
+	}
+
 	try
 	{
-		const recipient = client[toSymbol];
-
-		if(client[originSymbol])
-		{
-			recipient.postMessage({action, params, token}, client[originSymbol]);
-		}
-		else
-		{
-			recipient.postMessage({action, params, token});
-		}
+		client[sendSymbol](client[encodeSymbol]({action, params, token}));
 	}
 	catch(error)
 	{
-		incomplete.delete(token);
-		settled = true;
-		reject(error);
+		settle(reject, error);
 	}
 
 	return request;
@@ -145,18 +332,27 @@ const sendMessage = (client, action, params) => {
 export class Client
 {
 	/**
-	 * Create an RPC client around a `postMessage` transport.
+	 * Create an RPC client around a `postMessage` or custom transport.
 	 * @param {ClientOptions} options Named transport options.
 	 */
 	constructor(options)
 	{
 		const normalized = normalizeOptions(options);
 
-		this[originSymbol] = normalized.origin ?? undefined;
-		this[toSymbol] = normalized.to;
-		this[fromSymbol] = resolveListenerTarget(normalized.to, normalized.from);
+		this[sendSymbol] = normalized.send;
+		this[pendingSymbol] = new Map;
+		this[replyOriginsSymbol] = normalized.replyOrigins;
+		this[timeoutSymbol] = normalized.timeout;
+		this[encodeSymbol] = normalized.encode;
+		this[decodeSymbol] = normalized.decode;
 
-		this[fromSymbol].addEventListener('message', onMessage);
+		const cleanup = normalized.listen(
+			(message, metadata) => handleReplyMessage(this, message, metadata)
+		);
+
+		this[listenCleanupSymbol] = typeof cleanup === 'function'
+			? cleanup
+			: null;
 
 		return new Proxy(this, {
 			get: (target, action, receiver) => {
@@ -182,6 +378,25 @@ export class Client
 				return (...params)  => sendMessage(receiver, action, params);
 			}
 		});
+	}
+
+	/**
+	 * Remove this client's reply listener and reject any pending requests.
+	 */
+	dispose()
+	{
+		if(this[listenCleanupSymbol])
+		{
+			this[listenCleanupSymbol]();
+			this[listenCleanupSymbol] = null;
+		}
+
+		const disposeError = createDisposeError();
+
+		for(const callbacks of Array.from(this[pendingSymbol].values()))
+		{
+			callbacks.reject(disposeError);
+		}
 	}
 
 	/**
