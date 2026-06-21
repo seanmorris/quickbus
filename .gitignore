@@ -1,6 +1,8 @@
 node_modules/
 /*.mjs
 /*.js
+!/eslint.config.mjs
+!/playwright.config.mjs
 !source/*
 test-results/
 .env
