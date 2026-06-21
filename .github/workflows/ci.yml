@@ -6,22 +6,12 @@ on:
   pull_request:
     branches: [ main, master ]
 
+permissions:
+  contents: read
+
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Use Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '20'
-      - name: Install dependencies
-        run: npm ci
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-      - name: Build
-        run: npm run build
-      - name: Run tests
-        run: npm test
-      - name: Run Playwright tests
-        run: npm run test:e2e
+  verify:
+    name: Build and test
+    uses: ./.github/workflows/verify.yml
+    with:
+      node-version: '20'
