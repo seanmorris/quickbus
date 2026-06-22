@@ -46,7 +46,7 @@ jobs:
     needs: validate-release-tag
     uses: ./.github/workflows/verify.yml
     with:
-      node-version: '24'
+      node-version: '20'
       upload-package: true
 
   publish:
