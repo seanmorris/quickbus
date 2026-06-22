@@ -1,6 +1,6 @@
 {
   "name": "quickbus",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Promise-based RPC wrapper for postMessage transports.",
   "repository": {
     "type": "git",
